@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,6 +28,7 @@ export default function ImagePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const { data: session } = useSession();
 
   const providers = [
     { id: 'ai-generator', name: 'AI Generator', description: 'High-quality image generation' },
@@ -51,21 +53,20 @@ export default function ImagePage() {
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
 
+    // Guest user check
+    if (!session) {
+      const guestGenerations = parseInt(localStorage.getItem('guestImageGenerations') || '0', 10);
+      if (guestGenerations >= 2) {
+        alert('You have reached the free generation limit. Please sign in to continue.');
+        return;
+      }
+      localStorage.setItem('guestImageGenerations', (guestGenerations + 1).toString());
+    }
+
     setIsGenerating(true);
-    setProgress(0);
+    setGeneratedImage(null); // Clear previous image
 
     try {
-      // Simulate progress
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 400);
-
       const response = await fetch('/api/ai/image', {
         method: 'POST',
         headers: {
@@ -73,26 +74,23 @@ export default function ImagePage() {
         },
         body: JSON.stringify({
           prompt,
-          options: {
-            style: selectedStyle,
-            size: selectedSize
-          },
-          provider: selectedProvider
+          style: selectedStyle,
+          size: selectedSize,
         }),
       });
 
-      clearInterval(interval);
-      setProgress(100);
-
       if (response.ok) {
-        const data = await response.json();
-        setGeneratedImage(data.imageUrl);
+        const imageBlob = await response.blob();
+        const imageUrl = URL.createObjectURL(imageBlob);
+        setGeneratedImage(imageUrl);
+      } else {
+        // Handle error response from server
+        console.error('Image generation failed:', response.statusText);
       }
     } catch (error) {
       console.error('Generation failed:', error);
     } finally {
       setIsGenerating(false);
-      setTimeout(() => setProgress(0), 1000);
     }
   };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -29,6 +30,7 @@ export default function CodePage() {
   const [progress, setProgress] = useState(0);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { data: session } = useSession();
 
   const providers = [
     { id: 'ai-code', name: 'AI Code', description: 'Advanced code generation' },
@@ -76,21 +78,20 @@ export default function CodePage() {
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
 
+    // Guest user check
+    if (!session) {
+      const guestGenerations = parseInt(localStorage.getItem('guestCodeGenerations') || '0', 10);
+      if (guestGenerations >= 2) {
+        alert('You have reached the free generation limit. Please sign in to continue.');
+        return;
+      }
+      localStorage.setItem('guestCodeGenerations', (guestGenerations + 1).toString());
+    }
+
     setIsGenerating(true);
-    setProgress(0);
+    setGeneratedCode(''); // Clear previous results
 
     try {
-      // Simulate progress
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 300);
-
       const response = await fetch('/api/ai/code', {
         method: 'POST',
         headers: {
@@ -99,25 +100,34 @@ export default function CodePage() {
         body: JSON.stringify({
           prompt,
           language: selectedLanguage,
-          options: {
-            framework: selectedFramework
-          },
-          provider: selectedProvider
+          framework: selectedFramework,
         }),
       });
 
-      clearInterval(interval);
-      setProgress(100);
-
-      if (response.ok) {
-        const data = await response.json();
-        setGeneratedCode(data.code);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        const chunkValue = decoder.decode(value);
+        setGeneratedCode((prev) => prev + chunkValue);
+      }
+
     } catch (error) {
       console.error('Generation failed:', error);
+      // You might want to set an error state here to show in the UI
     } finally {
       setIsGenerating(false);
-      setTimeout(() => setProgress(0), 1000);
     }
   };
 

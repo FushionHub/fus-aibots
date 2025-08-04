@@ -17,6 +17,7 @@ import {
   Zap
 } from 'lucide-react';
 import Link from 'next/link';
+import AuthButton from '@/components/auth/auth-button';
 
 export default function Home() {
   const services = [
@@ -103,6 +104,7 @@ export default function Home() {
                   Settings
                 </Button>
               </Link>
+              <AuthButton />
             </div>
           </div>
         </div>

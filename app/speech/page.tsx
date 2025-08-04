@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,25 +27,24 @@ export default function SpeechPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [generatedAudioUrl, setGeneratedAudioUrl] = useState<string | null>(null);
+  const { data: session } = useSession();
 
   const handleSpeechToText = async () => {
     if (!audioFile) return;
 
+    if (!session) {
+      const guestGenerations = parseInt(localStorage.getItem('guestSttGenerations') || '0', 10);
+      if (guestGenerations >= 2) {
+        alert('You have reached the free generation limit. Please sign in to continue.');
+        return;
+      }
+      localStorage.setItem('guestSttGenerations', (guestGenerations + 1).toString());
+    }
+
     setIsProcessing(true);
-    setProgress(0);
 
     try {
-      // Simulate progress
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 300);
-
       const formData = new FormData();
       formData.append('audio', audioFile);
 
@@ -53,39 +53,35 @@ export default function SpeechPage() {
         body: formData,
       });
 
-      clearInterval(interval);
-      setProgress(100);
-
       if (response.ok) {
         const data = await response.json();
         setTranscribedText(data.text);
+      } else {
+        console.error('Speech-to-text failed:', response.statusText);
       }
     } catch (error) {
       console.error('Speech-to-text failed:', error);
     } finally {
       setIsProcessing(false);
-      setTimeout(() => setProgress(0), 1000);
     }
   };
 
   const handleTextToSpeech = async () => {
     if (!text.trim()) return;
 
+    if (!session) {
+      const guestGenerations = parseInt(localStorage.getItem('guestTtsGenerations') || '0', 10);
+      if (guestGenerations >= 2) {
+        alert('You have reached the free generation limit. Please sign in to continue.');
+        return;
+      }
+      localStorage.setItem('guestTtsGenerations', (guestGenerations + 1).toString());
+    }
+
     setIsProcessing(true);
-    setProgress(0);
+    setGeneratedAudioUrl(null);
 
     try {
-      // Simulate progress
-      const interval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 300);
-
       const response = await fetch('/api/ai/voiceover', {
         method: 'POST',
         headers: {
@@ -93,23 +89,20 @@ export default function SpeechPage() {
         },
         body: JSON.stringify({
           text,
-          voice: 'default',
-          provider: 'ai-speech'
         }),
       });
 
-      clearInterval(interval);
-      setProgress(100);
-
       if (response.ok) {
-        const data = await response.json();
-        // Handle audio result
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setGeneratedAudioUrl(audioUrl);
+      } else {
+        console.error('Text-to-speech failed:', response.statusText);
       }
     } catch (error) {
       console.error('Text-to-speech failed:', error);
     } finally {
       setIsProcessing(false);
-      setTimeout(() => setProgress(0), 1000);
     }
   };
 
@@ -363,15 +356,27 @@ export default function SpeechPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
-                    <div className="text-center">
-                      <Mic className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                      <p className="text-sm text-muted-foreground mb-2">No audio generated yet</p>
-                      <p className="text-xs text-muted-foreground">
-                        Enter text and click convert to generate speech
-                      </p>
+                  {generatedAudioUrl ? (
+                    <div className="space-y-4">
+                      <audio controls src={generatedAudioUrl} className="w-full">
+                        Your browser does not support the audio element.
+                      </audio>
+                      <Button onClick={() => handleDownload(generatedAudioUrl, 'generated-speech.mp3')} className="w-full">
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Audio
+                      </Button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-64 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg">
+                      <div className="text-center">
+                        <Mic className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                        <p className="text-sm text-muted-foreground mb-2">No audio generated yet</p>
+                        <p className="text-xs text-muted-foreground">
+                          Enter text and click convert to generate speech
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
